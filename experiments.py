@@ -20,9 +20,10 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.svm import SVC
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score, balanced_accuracy_score, roc_auc_score
+from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score, balanced_accuracy_score, roc_auc_score, ConfusionMatrixDisplay, confusion_matrix
 from sklearn.utils import class_weight
 from supervised_tf_idf import SupervisedTermWeights
+import matplotlib.pyplot as plt
 
 
 class HateXplainExperiments:
@@ -73,6 +74,8 @@ class HateXplainExperiments:
                 cleaned_dataset.append(individual_data)
         
         dataset = pd.DataFrame(cleaned_dataset)
+#        dataset['final_label'] = dataset['final_label'].map({'hatespeech':'offensive', 'offensive':'offensive', 'normal':'normal'})
+        
         return dataset
     
     def prepare_properties(self, dataset):
@@ -87,11 +90,7 @@ class HateXplainExperiments:
         self. X_test = self.df_test['post_tokens_joined']
         self.y_test = self.df_test['final_label']
         
-        # self.vectorizer = TfidfVectorizer(norm='l2')
-        # self.X_train_vect = self.vectorizer.fit_transform(self.X_train, self.y_train)
-        # self.X_test_vect = self.vectorizer.transform(self.X_test)
-
-        self.vectorizer = TfidfVectorizer(norm='l2')
+        self.vectorizer = TfidfVectorizer(norm='l2', stop_words='english')
         self.X_train_vect = self.vectorizer.fit_transform(self.X_train, self.y_train)
         self.X_test_vect = self.vectorizer.transform(self.X_test)
               
@@ -102,6 +101,7 @@ class HateXplainExperiments:
         self.test_rationales = self.df_test['final_rationale']
         self.train_sentences = self.df_train['post_tokens']
         self.test_sentences = self.df_test['post_tokens']
+
 
     def preprocess_training_data_option_one(self): 
 
@@ -123,6 +123,7 @@ class HateXplainExperiments:
                         previously_executed_tokens.append(token)
 
         X_train_vect = sparse.csr_matrix(train_tfidf_matrix)
+        
         return X_train_vect
 
     def preprocess_training_data_option_two(self):
@@ -161,6 +162,7 @@ class HateXplainExperiments:
                         previously_executed_tokens.append(token)
         
         X_train_vect = sparse.csr_matrix(train_tfidf_matrix)
+        
         return X_train_vect
 
     def preprocess_training_data_option_three(self):
@@ -289,7 +291,7 @@ class HateXplainExperiments:
         ]
 
         sclf = StackingClassifier(estimators=estimators, passthrough=True, final_estimator=SGDClassifier(
-            max_iter=100000,
+            max_iter=1000,
             loss='log_loss', 
             penalty='l2', 
             n_jobs=-1,
@@ -299,35 +301,35 @@ class HateXplainExperiments:
         params = {
             'nb__alpha': [0.0001, 0.001, 0.01, 0.1, 2],
             'nb__norm': [False, True],
-            'nb__class_prior': [None, [0.307048, 0.405944, 0.287008]], 
-            'sdg__max_iter': [100000],
+            'nb__class_prior': [None, [0.307048, 0.405944, 0.287008]],
+            'sdg__max_iter': [1000],
             'sdg__average': [True, False],
             'sdg__alpha': [0.0001, 0.001, 0.01, 0.1],
             'sdg__learning_rate': ['optimal'],
             'sdg__class_weight': ['balanced', class_weights],
-            # 'dt__min_samples_split': [2, 3, 4, 5, 6],
-            # 'dt__min_samples_leaf': [1, 2, 3, 4, 5, 6],
-            # 'dt__criterion': ['gini', 'entropy'],
+#             'dt__min_samples_split': [2, 3, 4, 5, 6],
+#             'dt__min_samples_leaf': [1, 2, 3, 4, 5, 6],
+#             'dt__criterion': ['gini', 'entropy'],
         }
 
-        # pipe = Pipeline([
-        #     ('clf', 'passthrough')
-        # ])
+#         pipe = Pipeline([
+#             ('clf', 'passthrough')
+#         ])
 
-        # params = [  
-        #     {
-        #         'clf': [SVC(kernel='linear', probability=True)],
-        #         'clf__C': [0.5, 1, 2, 5],
-        #         'clf__max_iter': [100000],
-        #         'clf__class_weight': ['balanced', {
-        #         'hatespeech': class_weights[0],
-        #         'normal': class_weights[1],
-        #         'offensive': class_weights[2]
-        # }],
-        #     }
-        # ]
+#         params = [  
+#             {
+#                 'clf': [SVC(kernel='linear', probability=True)],
+#                 'clf__C': [0.5, 1, 2, 5],
+#                 'clf__max_iter': [100000],
+#                 'clf__class_weight': ['balanced', {
+#                 'hatespeech': class_weights[0],
+#                 'normal': class_weights[1],
+#                 'offensive': class_weights[2]
+#         }],
+#             }
+#         ]
 
-        search = GridSearchCV(estimator=sclf, param_grid=params, scoring='accuracy', cv=StratifiedKFold(5, random_state=43, shuffle=True), refit=True, n_jobs=-1)
+        search = GridSearchCV(estimator=sclf, param_grid=params, scoring='accuracy', cv=StratifiedKFold(5, random_state=42, shuffle=True), refit=True, n_jobs=-1)
         search.fit(X_train_vect, y_train)
         
         return search
@@ -367,16 +369,16 @@ class HateXplainExperiments:
 
     def get_performance_metrics(self, X_train_vect=None, X_test_vect=None):
 
-        # kbest = SelectKBest(chi2, k=11000)
-        # X_train_vect = kbest.fit_transform(X_train_vect, self.y_train)
-        # X_test_vect = kbest.transform(self.X_test_vect)
+#         kbest = SelectKBest(chi2, k=11000)
+#         X_train_vect = kbest.fit_transform(X_train_vect, self.y_train)
+#         X_test_vect = kbest.transform(self.X_test_vect)
 
         description = self.description
         y_train = self.y_train
         y_test = self.y_test
-        # test_sentences = self.test_sentences
-        # test_rationales = self.test_sentences
-        # vectorizer = self.vectorizer
+#         test_sentences = self.test_sentences
+#         test_rationales = self.test_sentences
+#         vectorizer = self.vectorizer
 
         if X_test_vect == None:
             X_test_vect = self.X_test_vect
@@ -387,9 +389,6 @@ class HateXplainExperiments:
         search = self.train_model(X_train_vect, y_train)
 
         best_algorithm = search.best_estimator_
-
-        filename = 'best_algorithm.sav'
-        pickle.dump(best_algorithm, open(filename, 'wb'))
 
         best_params = search.best_params_
         print(best_params)
@@ -403,9 +402,9 @@ class HateXplainExperiments:
         f1 = f1_score(y_test, y_pred, average='weighted')
         precision = precision_score(y_test, y_pred, average='weighted')
         recall = recall_score(y_test, y_pred, average='weighted')
-        # mean_fait, std_fait = self.evaluate_faithfulness(best_algorithm, vectorizer, X_train_vect, X_test_vect, test_sentences, test_rationales)
+        mean_fait, std_fait = self.evaluate_faithfulness(best_algorithm, vectorizer, X_train_vect, X_test_vect, test_sentences, test_rationales)
         
-        data = {
+        performance_data = {
             'Description': [description],
             'CV score': [cv_score],
             'Accuracy': [accuracy],
@@ -414,18 +413,29 @@ class HateXplainExperiments:
             'F1 score': [f1],
             'Precision': [precision],
             'Recall': [recall],
-            # 'Faithfulness mean': [mean_fait],
-            # 'Faithfulness std': [std_fait],
+            'Faithfulness mean': [mean_fait],
+            'Faithfulness std': [std_fait],
         }
 
-        print(data)
+        print(performance_data)
 
-        metrics = pd.DataFrame(data)
-        with open('metrics.csv', 'a') as f:
-            metrics.to_csv(f, header=f.tell()==0)
+#         class_labels = list(best_algorithm.classes_)
+#         conf_matrix = confusion_matrix(y_test, y_pred, labels=class_labels)
+#         conf_matrix_percentage = conf_matrix / conf_matrix.sum(axis=1)[:, np.newaxis]
+        
+#         print(conf_matrix_percentage)
+        
+#         disp = ConfusionMatrixDisplay(confusion_matrix=conf_matrix_percentage, display_labels=class_labels)
+#         disp.plot(cmap='Blues', xticks_rotation='vertical')  
+
+#         fig = plt.gcf()
+#         fig.set_size_inches(8, 6)  
+#         plt.savefig('confusion_matrix_experiment_B.png')
+            
+        return best_algorithm
 
 
-if __name__ == '__main__':
+#if __name__ == '__main__':
 
     # description = "SVM: Exponential function applied to tokens in the TF-IDF vectorised training matrix tagged as not indicative in the human rationale [a]"
     # hatexplain = HateXplainExperiments(description)
